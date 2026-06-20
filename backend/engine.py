@@ -5,7 +5,6 @@ import concurrent.futures
 import google.generativeai as genai
 from pydantic import BaseModel, Field
 
-# Upgraded LangChain Inclusions
 from langchain_pinecone import PineconeVectorStore
 from langchain_community.retrievers import BM25Retriever
 from langchain_classic.retrievers import EnsembleRetriever
@@ -83,11 +82,9 @@ class AegisEngine:
             )
             
             # 2. Fetch all local session documents to construct the corpus for BM25
-            # We fetch a larger candidate pool (up to 100 chunks) to compile precise sparse token frequencies
             all_session_docs = vector_store.similarity_search("", k=100)
             
             if not all_session_docs:
-                # Fallback gracefully to standard vector search if namespace is currently empty
                 return vector_store.similarity_search(query, k=k_val)
 
             # 3. Instantiate local in-memory BM25 Retriever
@@ -97,7 +94,7 @@ class AegisEngine:
             # 4. Instantiate semantic Pinecone Retriever
             pinecone_retriever = vector_store.as_retriever(search_kwargs={"k": k_val})
 
-            # 5. Build Ensemble Hybrid Framework (70% Semantic context weight, 30% Exact token matching)
+            # 5. Build Ensemble Hybrid Framework
             ensemble_retriever = EnsembleRetriever(
                 retrievers=[bm25_retriever, pinecone_retriever],
                 weights=[0.3, 0.7]
@@ -107,16 +104,15 @@ class AegisEngine:
             
         except Exception as e:
             print(f"⚠️ Hybrid retrieval bottleneck hit, falling back to pure vector search: {e}")
-            # Resilient fallback infrastructure
             vector_store = PineconeVectorStore(
                 index_name="aegis-audit-index", 
                 embedding=self.embeddings, 
                 namespace=f"{session_id}_{doc_type}" 
             )
             return vector_store.similarity_search(query, k=k_val)
+
     @traceable(run_type="chain", name="Pillar_Analysis")
     def run_pillar_analysis(self, pillar, session_id):
-        # Swapped to the upgraded hybrid retrieval pipeline
         law_docs = self._get_hybrid_docs(pillar, session_id, "LAW", k_val=5)
         pol_docs = self._get_hybrid_docs(pillar, session_id, "POLICY", k_val=5)
         
@@ -158,9 +154,7 @@ class AegisEngine:
             print(f"⏱️ [{pillar}] Reasoning time: {time.time() - start:.2f} seconds")
 
             finding = json.loads(res.text)
-            
             self._log_eval_trace(pillar, context, finding)
-    
             return finding
             
         except Exception as e:
@@ -176,7 +170,6 @@ class AegisEngine:
 
     @traceable(run_type="chain", name="Full_Compliance_Audit")
     def run_compliance_audit(self, session_id):
-        """Executes the 8-pillar audit in parallel using a ThreadPool."""
         pillars = ["Capacity", "Consent", "Consideration", "Legality", "Documentation", "Breach", "Termination", "Jurisdiction"]
         final_report = []
 
@@ -214,8 +207,11 @@ class AegisEngine:
             try:
                 response = self.chat_model.generate_content(prompt, stream=True)
                 for chunk in response:
-                    if chunk.text:
+                    # 🛡️ SAFETY FIX 1: Check for valid parts before yielding text
+                    if chunk.candidates and chunk.candidates[0].content.parts:
                         yield chunk.text
+                    else:
+                        yield "I'm not quite sure how to respond to that."
                 return
             except Exception as e:
                 yield self._format_error_msg(e)
@@ -251,7 +247,9 @@ class AegisEngine:
         try:
             response = self.model.generate_content(hybrid_prompt, stream=True)
             for chunk in response:
-                if chunk.text:
+                if chunk.candidates and chunk.candidates[0].content.parts:
                     yield chunk.text
+                else:
+                    yield "I'm not quite sure how to respond to that."
         except Exception as e:
             yield self._format_error_msg(e)
