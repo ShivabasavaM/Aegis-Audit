@@ -74,6 +74,12 @@ class ChatRequest(BaseModel):
     query: str
     history: List[str]
 
+# --- Health Check (For Render & UptimeRobot) ---
+@app.get("/")
+async def health_check():
+    """Provides a 200 OK status for UptimeRobot and Render health checks."""
+    return {"status": "online", "service": "Aegis-Audit API", "version": "2.0"}
+
 @app.post("/api/v1/chat", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
 async def chat_with_docs(request: ChatRequest):
     """Handles real-time streaming chat."""
