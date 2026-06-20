@@ -4,11 +4,18 @@ import datetime
 import concurrent.futures
 import google.generativeai as genai
 from pydantic import BaseModel, Field
+
+# Upgraded LangChain Inclusions
 from langchain_pinecone import PineconeVectorStore
+from langchain_community.retrievers import BM25Retriever
+from langchain_classic.retrievers import EnsembleRetriever
+
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from dotenv import load_dotenv
+from langsmith import traceable
 
-  
+MAX_KEYWORD_COUNT = int(os.getenv("MAX_KEYWORD_COUNT", "50"))
+
 class AuditFinding(BaseModel):
     pillar: str = Field(description="The name of the legal pillar being analyzed.")
     rating: str = Field(description="Strictly one of: 'Low', 'Medium', 'High', 'Critical', 'ERROR'.")
@@ -62,17 +69,56 @@ class AegisEngine:
             return "Google API Quota Exceeded. Please wait a moment before trying again."
         return f"AI Processing Error: {str(e)}"
 
-    def _get_pinecone_docs(self, query, session_id, doc_type, k_val=5):
-        vector_store = PineconeVectorStore(
-            index_name="aegis-audit-index", 
-            embedding=self.embeddings, 
-            namespace=f"{session_id}_{doc_type}" 
-        )
-        return vector_store.similarity_search(query, k=k_val)
+    def _get_hybrid_docs(self, query, session_id, doc_type, k_val=5):
+        """
+        Industry-Standard Hybrid Retriever:
+        Combines Dense Semantic Vector Search (Pinecone) with Sparse Keyword Matching (BM25).
+        """
+        try:
+            # 1. Access the dense vector store namespace
+            vector_store = PineconeVectorStore(
+                index_name="aegis-audit-index", 
+                embedding=self.embeddings, 
+                namespace=f"{session_id}_{doc_type}" 
+            )
+            
+            # 2. Fetch all local session documents to construct the corpus for BM25
+            # We fetch a larger candidate pool (up to 100 chunks) to compile precise sparse token frequencies
+            all_session_docs = vector_store.similarity_search("", k=100)
+            
+            if not all_session_docs:
+                # Fallback gracefully to standard vector search if namespace is currently empty
+                return vector_store.similarity_search(query, k=k_val)
 
+            # 3. Instantiate local in-memory BM25 Retriever
+            bm25_retriever = BM25Retriever.from_documents(all_session_docs)
+            bm25_retriever.k = k_val
+
+            # 4. Instantiate semantic Pinecone Retriever
+            pinecone_retriever = vector_store.as_retriever(search_kwargs={"k": k_val})
+
+            # 5. Build Ensemble Hybrid Framework (70% Semantic context weight, 30% Exact token matching)
+            ensemble_retriever = EnsembleRetriever(
+                retrievers=[bm25_retriever, pinecone_retriever],
+                weights=[0.3, 0.7]
+            )
+            
+            return ensemble_retriever.invoke(query)
+            
+        except Exception as e:
+            print(f"⚠️ Hybrid retrieval bottleneck hit, falling back to pure vector search: {e}")
+            # Resilient fallback infrastructure
+            vector_store = PineconeVectorStore(
+                index_name="aegis-audit-index", 
+                embedding=self.embeddings, 
+                namespace=f"{session_id}_{doc_type}" 
+            )
+            return vector_store.similarity_search(query, k=k_val)
+    @traceable(run_type="chain", name="Pillar_Analysis")
     def run_pillar_analysis(self, pillar, session_id):
-        law_docs = self._get_pinecone_docs(pillar, session_id, "LAW", k_val=5)
-        pol_docs = self._get_pinecone_docs(pillar, session_id, "POLICY", k_val=5)
+        # Swapped to the upgraded hybrid retrieval pipeline
+        law_docs = self._get_hybrid_docs(pillar, session_id, "LAW", k_val=5)
+        pol_docs = self._get_hybrid_docs(pillar, session_id, "POLICY", k_val=5)
         
         context = f"LAW: {[d.page_content for d in law_docs]}\nPOLICY: {[d.page_content for d in pol_docs]}"
         
@@ -128,6 +174,7 @@ class AegisEngine:
                 "citation": "System Error"
             }
 
+    @traceable(run_type="chain", name="Full_Compliance_Audit")
     def run_compliance_audit(self, session_id):
         """Executes the 8-pillar audit in parallel using a ThreadPool."""
         pillars = ["Capacity", "Consent", "Consideration", "Legality", "Documentation", "Breach", "Termination", "Jurisdiction"]
@@ -165,7 +212,6 @@ class AegisEngine:
         if session_id == "general_chat":
             prompt = f"You are Buddy, a helpful AI. Answer conversationally.\nHistory: {history}\nUser: {user_query}"
             try:
-
                 response = self.chat_model.generate_content(prompt, stream=True)
                 for chunk in response:
                     if chunk.text:
@@ -175,8 +221,9 @@ class AegisEngine:
                 yield self._format_error_msg(e)
                 return
 
-        law_docs = self._get_pinecone_docs(user_query, session_id, "LAW", k_val=4)
-        pol_docs = self._get_pinecone_docs(user_query, session_id, "POLICY", k_val=4)
+        # Chat now benefits from hybrid search capabilities
+        law_docs = self._get_hybrid_docs(user_query, session_id, "LAW", k_val=4)
+        pol_docs = self._get_hybrid_docs(user_query, session_id, "POLICY", k_val=4)
         
         context = ""
         for d in law_docs + pol_docs:

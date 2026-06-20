@@ -11,9 +11,16 @@ __pycache__/
 frontend/node_modules/
 frontend/dist/
 .DS_Store
+frontend/.env
 
 # Databases & Evaluation Artifacts
 *.db
 *.sqlite3
 *.jsonl
 *.csv
+*.pdf
+ragas_eval_dataset.jsonl
+test_e2e.py
+.python-version
+packages.txt
+.devcontainer

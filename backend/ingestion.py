@@ -50,8 +50,8 @@ class AegisIngestor:
                 raw_text = "\n\n".join([doc.text for doc in parsed_docs])      
                 
                 chunks = self.splitter.split_text(raw_text)
-                
-                docs = [Document(page_content=chunk, metadata={"source": filename}) for chunk in chunks]
+                cleaned_chunks = [chunk.strip() for chunk in chunks if chunk.strip()]
+                docs = [Document(page_content=chunk, metadata={"source": filename}) for chunk in cleaned_chunks]
 
                 vector_db = PineconeVectorStore.from_documents(
                     documents=docs,

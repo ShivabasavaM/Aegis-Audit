@@ -1,26 +1,32 @@
 # --- Core API ---
-fastapi
-uvicorn
-python-multipart
-python-dotenv
-pydantic
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+python-dotenv>=1.0.0
+pydantic>=2.4.0
+
+# --- Enterprise Safeguards & Caching ---
+redis>=5.0.0
+fastapi-limiter>=0.1.6
 
 # --- AI & Embeddings ---
-google-generativeai
-langchain
-langchain-core
-langchain-google-genai
-langchain-text-splitters
+google-generativeai>=0.4.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community<0.4.2 
+langchain-google-genai>=2.0.0
+langchain-groq>=0.2.0
 
 # --- Vector DB & Parsing ---
-pinecone-client
-langchain-pinecone
-llama-parse
+langchain-text-splitters>=0.3.0
+pinecone-client>=4.0.0
+langchain-pinecone>=0.2.0
+llama-parse>=0.5.0
 
 # --- Document Generation ---
-python-docx
+python-docx>=1.1.0
 
-# --- Evaluation ---
-ragas
-datasets
-pandas
+# --- Evaluation (Ragas CI/CD) ---
+ragas>=0.2.0
+datasets>=2.16.0
+pandas>=2.0.0
