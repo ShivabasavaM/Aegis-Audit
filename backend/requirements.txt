@@ -7,7 +7,7 @@ pydantic>=2.4.0
 
 # --- Enterprise Safeguards & Caching ---
 redis>=5.0.0
-fastapi-limiter>=0.1.6
+fastapi-limiter==0.1.6
 
 # --- AI & Embeddings ---
 google-generativeai>=0.4.0
